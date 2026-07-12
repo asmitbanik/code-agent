@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-auto"
+version = "0.1.0"
+description = "Autonomous coding agent (Groq/Gemini) - clone, plan, loop, verify, PR"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.15.0",
+  "rich>=13.9.0",
+  "google-genai>=1.0.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.7.0",
+  "python-dotenv>=1.0.0",
+  "playwright>=1.49.0",
+  "httpx>=0.28.0",
+  "chromadb>=0.5.0",
+  "sentence-transformers>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+]
+
+[project.scripts]
+agent = "agent_auto.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_auto"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/agent_auto" = "agent_auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

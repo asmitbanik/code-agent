@@ -1,0 +1,13 @@
+services:
+  agent:
+    build: .
+    env_file:
+      - .env
+    environment:
+      AGENT_WORKDIR: /runs
+    volumes:
+      - ./runs:/runs
+    # Example:
+    # docker compose run --rm agent run --repo https://github.com/org/app.git --task "Add a password strength indicator."
+    entrypoint: ["agent"]
+    command: ["--help"]
