@@ -1,8 +1,10 @@
 # agent-auto
 
-Multi-agent coding orchestrator with **local RAG** (ChromaDB + MiniLM):
+Multi-agent coding orchestrator with **local RAG** (ChromaDB + MiniLM) and an autonomous **open-source contribute** mode.
 
-**classify -> intake (.env) -> index -> Planner -> Retriever -> Coder -> Tester -> Reviewer -> PR**
+**Single task:** classify -> intake (.env) -> index -> Planner -> Retriever -> Coder -> Tester -> Reviewer -> PR
+
+**Contribute:** fetch open issues -> rank easiest-first -> fork/solve -> real-user UX verify -> claim (>50%) -> structured PR -> CI fix loop
 
 ## Complexity tiers
 
@@ -23,11 +25,14 @@ python -m venv .venv
 pip install -e ".[dev]"
 playwright install chromium
 copy .env.example .env
+gh auth login
 ```
 
-Set `GROQ_API_KEY` (and `GH_TOKEN` for PRs). First RAG run downloads `all-MiniLM-L6-v2` locally.
+Set `GROQ_API_KEY` (and `GH_TOKEN` if not using `gh` keyring). First RAG run downloads `all-MiniLM-L6-v2` locally.
 
 ## CLI
+
+### Single instructed task
 
 ```bash
 agent doctor
@@ -40,9 +45,28 @@ agent run \
   --yes
 ```
 
-- Missing keys from the target `.env.example` are **prompted interactively**
-- Non-TTY without `--env-file` fails with a clear error
-- Clones land in `runs/<run_id>/repo/`; Chroma index in `runs/<run_id>/chroma/`
+### Autonomous open-source contribute
+
+```bash
+agent contribute \
+  --repo owner/name \
+  --limit 10 \
+  --labels "good first issue,bug" \
+  --env-file .\secrets.env \
+  --yes \
+  --max-ci-retries 3
+```
+
+Behavior highlights:
+
+- Fork-first when you lack write access; same-repo PR when you have push
+- Skips issues where an assignee already has an open PR for that issue
+- Solves easiest issues first (`docs` → `simple` → `standard` → `complex`)
+- Comments “Working on this” only after >50% progress, then opens a PR with a structured body (`Fixes #N`, summary, checklist)
+- Real-user Playwright/API smoke (not lint-only); blocks PR if UX fails (unless `--allow-unverified`)
+- Watches CI, comments on failures, iterates fixes up to `--max-ci-retries`
+
+State: `runs/contribute/<owner>__<repo>/state.json`
 
 ## Roles
 
@@ -57,5 +81,5 @@ agent run \
 
 ```bash
 docker build -t agent-auto .
-docker run --rm -it -e GROQ_API_KEY -e GH_TOKEN -v %CD%/runs:/runs agent-auto run --repo <url> --task "..." --env-file /runs/secrets.env --yes
+docker run --rm -it -e GROQ_API_KEY -e GH_TOKEN -v %CD%/runs:/runs agent-auto contribute --repo owner/name --limit 5 --yes
 ```

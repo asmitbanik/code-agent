@@ -24,6 +24,8 @@ def _run(
         cwd=str(cwd),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         check=False,
         env=merged,
@@ -48,6 +50,12 @@ def ship_changes(
     evaluation: EvaluationResult | None,
     github_token: str,
     skip_pr: bool = False,
+    branch_name: str | None = None,
+    pr_title: str | None = None,
+    pr_body: str | None = None,
+    pr_repo: str | None = None,
+    head: str | None = None,
+    create_branch: bool = True,
 ) -> dict:
     status = _run(["git", "status", "--porcelain"], root)
     if not (status.stdout or "").strip():
@@ -61,26 +69,26 @@ def ship_changes(
         }
 
     sha = _run(["git", "rev-parse", "--short", "HEAD"], root).stdout.strip() or "0000000"
-    branch = create_branch_name(task, sha)
+    branch = branch_name or create_branch_name(task, sha)
 
-    # Ensure we are on a new branch from current HEAD (already based on base)
-    checkout = _run(["git", "checkout", "-B", branch], root)
-    if checkout.returncode != 0:
-        return {
-            "ok": False,
-            "error": checkout.stderr or "Failed to create branch",
-            "branch_name": branch,
-            "commit_sha": None,
-            "pr_url": None,
-            "delivery_note": None,
-        }
+    if create_branch:
+        checkout = _run(["git", "checkout", "-B", branch], root)
+        if checkout.returncode != 0:
+            return {
+                "ok": False,
+                "error": checkout.stderr or "Failed to create branch",
+                "branch_name": branch,
+                "commit_sha": None,
+                "pr_url": None,
+                "delivery_note": None,
+            }
 
     _run(["git", "add", "-A"], root)
-    # Ensure identity for unattended commits
     if not _run(["git", "config", "user.email"], root).stdout.strip():
         _run(["git", "config", "user.email", "agent-auto@localhost"], root)
         _run(["git", "config", "user.name", "agent-auto"], root)
-    message = f"agent: {task.strip()[:72]}"
+
+    message = pr_title or f"agent: {task.strip()[:72]}"
     body_lines = [
         f"Goal: {plan.goal}",
         "",
@@ -94,14 +102,16 @@ def ship_changes(
         root,
     )
     if commit.returncode != 0:
-        return {
-            "ok": False,
-            "error": commit.stderr or commit.stdout or "Commit failed",
-            "branch_name": branch,
-            "commit_sha": None,
-            "pr_url": None,
-            "delivery_note": None,
-        }
+        # maybe nothing new staged beyond previous commit attempt
+        if "nothing to commit" not in ((commit.stdout or "") + (commit.stderr or "")).lower():
+            return {
+                "ok": False,
+                "error": commit.stderr or commit.stdout or "Commit failed",
+                "branch_name": branch,
+                "commit_sha": None,
+                "pr_url": None,
+                "delivery_note": None,
+            }
 
     commit_sha = _run(["git", "rev-parse", "HEAD"], root).stdout.strip()
 
@@ -123,13 +133,7 @@ def ship_changes(
             "delivery_note": "Local commit only - set GH_TOKEN to push and open a PR",
         }
 
-    # Configure credential helper via env for this push
-    env_push = _run(
-        ["git", "push", "-u", "origin", branch],
-        root,
-        timeout=180,
-    )
-    # Retry with tokenized URL if plain push fails
+    env_push = _run(["git", "push", "-u", "origin", branch], root, timeout=180)
     if env_push.returncode != 0:
         remote = _run(["git", "remote", "get-url", "origin"], root).stdout.strip()
         if remote.startswith("https://") and "github.com" in remote:
@@ -149,7 +153,7 @@ def ship_changes(
             "delivery_note": f"Push failed: {(env_push.stderr or env_push.stdout)[:500]}",
         }
 
-    pr_body = "\n".join(
+    body = pr_body or "\n".join(
         [
             "## Summary",
             f"- {plan.goal}",
@@ -163,20 +167,27 @@ def ship_changes(
             "_Opened automatically by agent-auto._",
         ]
     )
+
+    pr_cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--base",
+        base_branch,
+        "--title",
+        message,
+        "--body",
+        body,
+    ]
+    if pr_repo:
+        pr_cmd.extend(["--repo", pr_repo])
+    if head:
+        pr_cmd.extend(["--head", head])
+    else:
+        pr_cmd.extend(["--head", branch])
+
     pr = _run(
-        [
-            "gh",
-            "pr",
-            "create",
-            "--base",
-            base_branch,
-            "--head",
-            branch,
-            "--title",
-            message,
-            "--body",
-            pr_body,
-        ],
+        pr_cmd,
         root,
         timeout=120,
         env={"GH_TOKEN": github_token, "GITHUB_TOKEN": github_token},
